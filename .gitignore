@@ -59,3 +59,18 @@ typings/
 
 # next.js build output
 .next
+
+# ==============================
+# FacultyWare — Project Specific
+# ==============================
+
+# Dokumentasi internal AI (jangan push ke repo)
+CLAUDE.md
+
+# Seed script (berisi password test, jangan push)
+scripts/seed_acl.js
+
+# File foto upload oleh user (jangan push)
+public/uploads/equipment/*
+# Tapi tetap track folder-nya agar ada saat clone
+!public/uploads/equipment/.gitkeep

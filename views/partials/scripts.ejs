@@ -1,0 +1,27 @@
+<script>
+  // Sidebar toggle handler
+  document.addEventListener("basecoat:sidebar", () => {
+    const sidebar = document.getElementById("sidebar");
+    if (!sidebar) return;
+    const hidden = sidebar.getAttribute("aria-hidden") === "true";
+    sidebar.setAttribute("aria-hidden", hidden ? "false" : "true");
+  });
+
+  // Active sidebar link
+  (() => {
+    const sidebar = document.getElementById("sidebar");
+    if (!sidebar) return;
+    const currentPath = window.location.pathname.replace(/\/$/, "");
+    sidebar.querySelectorAll("a").forEach((item) => {
+      const href = item.getAttribute("href");
+      if (!href) return;
+      try {
+        const url = new URL(href, window.location.origin);
+        const itemPath = url.pathname.replace(/\/$/, "");
+        if (itemPath === currentPath) {
+          item.setAttribute("aria-current", "page");
+        }
+      } catch (_) {}
+    });
+  })();
+</script>
