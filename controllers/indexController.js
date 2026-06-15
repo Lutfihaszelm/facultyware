@@ -2,11 +2,11 @@ const bcrypt = require("bcryptjs");
 const db = require("../lib/db");
 
 const index = (req, res) => {
-  res.render("index", { title: "Express" });
+  res.redirect("/login");
 };
 
 const home = (req, res) => {
-  res.render("home", { title: "Home", user: req.session.username });
+  res.render("home", { title: "Home", user: req.session.email });
 };
 
 const loginPage = (req, res) => {
@@ -17,17 +17,17 @@ const loginPage = (req, res) => {
 };
 
 const login = async (req, res, next) => {
-  const { username, password } = req.body;
+  const { email, password } = req.body;
 
   try {
-    const [rows] = await db.query("SELECT * FROM users WHERE username = ?", [
-      username,
+    const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [
+      email,
     ]);
 
     if (rows.length === 0) {
       return res.render("login", {
         title: "Login",
-        error: "Invalid username or password",
+        error: "Email atau password salah",
       });
     }
 
@@ -37,13 +37,14 @@ const login = async (req, res, next) => {
     if (!isMatch) {
       return res.render("login", {
         title: "Login",
-        error: "Invalid username or password",
+        error: "Email atau password salah",
       });
     }
 
     // Set session
     req.session.userId = user.id;
-    req.session.username = user.username;
+    req.session.email = user.email;
+    req.session.name = user.name;
 
     res.redirect("/home");
   } catch (err) {
