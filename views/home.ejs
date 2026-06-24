@@ -32,6 +32,41 @@
     <title>Dashboard — FacultyWare</title>
     <meta name="description" content="Dashboard pengelolaan aset dan sumber daya fakultas" />
     <link rel="stylesheet" href="/assets/styles.css" />
+    <style>
+      /* Warna status — didefinisikan manual karena utilitas Tailwind ini
+         (bg-purple-500, bg-yellow-500, bg-gray-400) tidak ikut terkompilasi
+         di Basecoat, sehingga hanya bg-blue-500 yang muncul. */
+      .status-dot-available   { background-color: #3b82f6; }
+      .status-dot-in_use      { background-color: #a855f7; }
+      .status-dot-maintenance { background-color: #eab308; }
+      .status-dot-retired     { background-color: #9ca3af; }
+      /* Bar chart vertikal untuk ringkasan status.
+         Layout flex ditaruh di sini karena utilitas Tailwind seperti
+         justify-end / items-end / justify-around tidak terkompilasi di
+         Basecoat — tanpa ini, kolom bar menumpuk dari atas. */
+      .status-chart {
+        height: 12rem;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-around;
+        gap: 0.75rem;
+      }
+      .status-col {
+        flex: 1 1 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+      }
+      .status-bar {
+        width: 100%;
+        max-width: 3rem;
+        border-radius: 0.375rem 0.375rem 0 0;
+        height: 0;
+        transition: height .6s ease;
+      }
+    </style>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   </head>
   <body>
@@ -55,7 +90,7 @@
 
           <!-- Total Aset -->
           <div class="card">
-            <div class="card-content pt-6">
+            <div class="card-content px-4 pt-6">
               <div class="flex items-start justify-between">
                 <div>
                   <p class="text-sm text-muted-foreground">Total Aset Peralatan</p>
@@ -74,7 +109,7 @@
 
           <!-- Kondisi Baik -->
           <div class="card">
-            <div class="card-content pt-6">
+            <div class="card-content px-4 pt-6">
               <div class="flex items-start justify-between">
                 <div>
                   <p class="text-sm text-muted-foreground">Kondisi Baik</p>
@@ -93,7 +128,7 @@
 
           <!-- Perlu Perhatian (rusak ringan + berat) -->
           <div class="card">
-            <div class="card-content pt-6">
+            <div class="card-content px-4 pt-6">
               <div class="flex items-start justify-between">
                 <div>
                   <p class="text-sm text-muted-foreground">Rusak / Perhatian</p>
@@ -112,7 +147,7 @@
 
           <!-- Tersedia -->
           <div class="card">
-            <div class="card-content pt-6">
+            <div class="card-content px-4 pt-6">
               <div class="flex items-start justify-between">
                 <div>
                   <p class="text-sm text-muted-foreground">Tersedia</p>
@@ -130,12 +165,65 @@
           </div>
         </div>
 
+        <!-- Ringkasan Status -->
+        <div class="card">
+          <div class="card-header px-4">
+            <h2 class="card-title">Ringkasan Status Aset</h2>
+            <p class="card-description">Distribusi status dari <%= stats.total %> aset peralatan</p>
+          </div>
+          <div class="card-content px-4 space-y-4">
+            <%
+              const statusPct = (v) => stats.total > 0 ? Math.round(v / stats.total * 100) : 0;
+              const statusItems = [
+                { key: 'available',   label: 'Tersedia',    value: stats.available },
+                { key: 'in_use',      label: 'Digunakan',   value: stats.in_use },
+                { key: 'maintenance', label: 'Perbaikan',   value: stats.maintenance },
+                { key: 'retired',     label: 'Tidak Aktif', value: stats.retired },
+              ];
+            %>
+
+            <!-- Bar chart vertikal: tinggi kolom proporsional ke jumlah aset -->
+            <% if (stats.total > 0) {
+              const maxVal = Math.max(stats.available, stats.in_use, stats.maintenance, stats.retired, 1);
+            %>
+            <div class="status-chart border-b pb-px">
+              <% statusItems.forEach(item => {
+                const h = Math.round(item.value / maxVal * 90);
+              %>
+              <div class="status-col">
+                <span class="text-sm font-semibold tabular-nums mb-1"><%= item.value %></span>
+                <div class="status-bar status-dot-<%= item.key %>" data-height="<%= h %>" title="<%= item.label %>: <%= item.value %> (<%= statusPct(item.value) %>%)"></div>
+              </div>
+              <% }) %>
+            </div>
+            <% } else { %>
+            <p class="text-sm text-muted-foreground">Belum ada data aset untuk ditampilkan.</p>
+            <% } %>
+
+            <!-- Legenda + jumlah + persentase -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <% statusItems.forEach(item => { %>
+              <div class="flex items-center gap-2">
+                <span class="size-3 rounded-full shrink-0 status-dot-<%= item.key %>"></span>
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold tabular-nums">
+                    <%= item.value %>
+                    <span class="text-muted-foreground font-normal">(<%- statusPct(item.value) %>%)</span>
+                  </p>
+                  <p class="text-xs text-muted-foreground truncate"><%= item.label %></p>
+                </div>
+              </div>
+              <% }) %>
+            </div>
+          </div>
+        </div>
+
         <!-- Content Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
           <!-- Aset Terbaru -->
           <div class="card lg:col-span-2">
-            <div class="card-header">
+            <div class="card-header px-4">
               <h2 class="card-title">Aset Terbaru Ditambahkan</h2>
               <p class="card-description">5 aset peralatan terakhir</p>
             </div>
@@ -166,8 +254,8 @@
                         <a href="/equipments/<%= eq.id %>" class="font-medium hover:underline underline-offset-4"><%= eq.name %></a>
                         <% if (eq.brand) { %><p class="text-xs text-muted-foreground"><%= eq.brand %> <%= eq.model || '' %></p><% } %>
                       </td>
-                      <td><span class="badge badge-outline font-mono text-xs"><%= eq.code %></span></td>
-                      <td><span class="badge <%= cond.cls %>"><%= cond.label %></span></td>
+                      <td><span class="badge-outline font-mono text-xs"><%= eq.code %></span></td>
+                      <td><span class="<%= cond.cls %>"><%= cond.label %></span></td>
                       <td class="text-sm text-muted-foreground whitespace-nowrap">
                         <%= eq.created_at ? new Date(eq.created_at).toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' }) : '-' %>
                       </td>
@@ -177,7 +265,7 @@
                 </table>
               </div>
               <div class="p-4 border-t">
-                <a href="/equipments" class="btn btn-outline btn-sm w-full">Lihat Semua Aset</a>
+                <a href="/equipments" class="btn-sm-outline w-full">Lihat Semua Aset</a>
               </div>
               <% } %>
             </div>
@@ -186,60 +274,26 @@
           <!-- Aksi Cepat -->
           <div class="space-y-4">
             <div class="card">
-              <div class="card-header">
+              <div class="card-header px-4">
                 <h2 class="card-title">Aksi Cepat</h2>
               </div>
-              <div class="card-content space-y-2">
-                <a href="/equipments/create" class="btn btn-primary w-full justify-start gap-2">
+              <div class="card-content px-4 space-y-2">
+                <a href="/equipments/create" class="btn-primary w-full justify-start gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>
                   Tambah Aset Baru
                 </a>
-                <a href="/equipments" class="btn btn-outline w-full justify-start gap-2">
+                <a href="/equipments" class="btn-outline w-full justify-start gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
                   Daftar Aset Peralatan
                 </a>
-                <a href="/equipments/export?format=xlsx" class="btn btn-outline w-full justify-start gap-2">
+                <a href="/equipments/export?format=xlsx" class="btn-outline w-full justify-start gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
                   Export Data ke Excel
                 </a>
-                <a href="/equipments?condition=major_damage" class="btn btn-outline w-full justify-start gap-2 text-destructive hover:text-destructive">
+                <a href="/equipments?condition=major_damage" class="btn-outline w-full justify-start gap-2 text-destructive hover:text-destructive">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
                   Aset Rusak Berat
                 </a>
-              </div>
-            </div>
-
-            <!-- Ringkasan Status -->
-            <div class="card">
-              <div class="card-header">
-                <h2 class="card-title">Ringkasan Status</h2>
-              </div>
-              <div class="card-content space-y-3">
-                <% const statusItems = [
-                  { label: 'Tersedia', value: stats.available, cls: 'bg-blue-500' },
-                  { label: 'Digunakan', value: stats.in_use, cls: 'bg-purple-500' },
-                  { label: 'Perbaikan', value: stats.maintenance, cls: 'bg-yellow-500' },
-                  { label: 'Tidak Aktif', value: stats.retired, cls: 'bg-gray-400' },
-                ]; %>
-                <% statusItems.forEach(item => { %>
-                <div class="flex items-center justify-between text-sm">
-                  <div class="flex items-center gap-2">
-                    <span class="size-2 rounded-full <%= item.cls %>"></span>
-                    <span class="text-muted-foreground"><%= item.label %></span>
-                  </div>
-                  <span class="font-semibold tabular-nums"><%= item.value %></span>
-                </div>
-                <% }) %>
-                <% if (stats.total > 0) { %>
-                <div class="pt-2">
-                  <div class="flex rounded-full overflow-hidden h-2 gap-px">
-                    <% if (stats.available > 0) { %><div class="bg-blue-500" style="width:<%= Math.round(stats.available/stats.total*100) %>%"></div><% } %>
-                    <% if (stats.in_use > 0) { %><div class="bg-purple-500" style="width:<%= Math.round(stats.in_use/stats.total*100) %>%"></div><% } %>
-                    <% if (stats.maintenance > 0) { %><div class="bg-yellow-500" style="width:<%= Math.round(stats.maintenance/stats.total*100) %>%"></div><% } %>
-                    <% if (stats.retired > 0) { %><div class="bg-gray-400" style="width:<%= Math.round(stats.retired/stats.total*100) %>%"></div><% } %>
-                  </div>
-                </div>
-                <% } %>
               </div>
             </div>
           </div>
@@ -248,6 +302,16 @@
       </div>
     </main>
 
+    <script>
+      // Terapkan tinggi tiap kolom bar chart dari data-height (hindari inline
+      // style di template agar linter CSS tidak salah deteksi).
+      // Pakai requestAnimationFrame agar transisi tinggi ikut beranimasi.
+      requestAnimationFrame(() => {
+        document.querySelectorAll('.status-bar').forEach((el) => {
+          el.style.height = (el.dataset.height || 0) + '%';
+        });
+      });
+    </script>
     <%- include('./partials/scripts') %>
   </body>
 </html>

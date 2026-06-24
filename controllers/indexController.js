@@ -79,6 +79,8 @@ const login = async (req, res, next) => {
     req.session.email = user.email;
     req.session.name = user.name;
 
+    // res.redirect sudah dibungkus middleware agar menyimpan sesi dulu
+    // (lihat app.js) — mencegah race condition dengan store async.
     res.redirect("/home");
   } catch (err) {
     next(err);

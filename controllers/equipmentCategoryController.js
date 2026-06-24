@@ -20,20 +20,46 @@ const validateCategory = [
 // GET /equipment-categories
 const index = async (req, res, next) => {
   try {
+    const q = req.query.q || '';
+
+    // Pagination
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = 10;
+    const offset = (page - 1) * limit;
+
+    let whereClause = '';
+    const params = [];
+    if (q) {
+      whereClause = `WHERE ec.code LIKE ? OR ec.name LIKE ? OR ec.description LIKE ?`;
+      const likeQ = `%${q}%`;
+      params.push(likeQ, likeQ, likeQ);
+    }
+
+    // Hitung total baris untuk jumlah halaman
+    const [[{ totalRows }]] = await db.query(`
+      SELECT COUNT(*) AS totalRows FROM equipment_categories ec ${whereClause}
+    `, params);
+    const totalPages = Math.max(1, Math.ceil(totalRows / limit));
+
     const [categories] = await db.query(`
-      SELECT ec.*, 
+      SELECT ec.*,
         COUNT(e.id) AS equipment_count
       FROM equipment_categories ec
       LEFT JOIN equipments e ON e.category_id = ec.id
+      ${whereClause}
       GROUP BY ec.id
       ORDER BY ec.created_at DESC
-    `);
+      LIMIT ? OFFSET ?
+    `, [...params, limit, offset]);
+
     res.render('equipment-categories/index', {
       title: 'Kategori Aset',
       categories,
+      q,
       user: req.session.email,
       success: req.session.success || null,
       error: req.session.error || null,
+      pagination: { page, limit, totalRows, totalPages },
     });
     delete req.session.success;
     delete req.session.error;
@@ -179,7 +205,12 @@ const destroy = async (req, res, next) => {
     req.session.success = 'Kategori berhasil dihapus';
     res.redirect('/equipment-categories');
   } catch (err) {
-    next(err);
+    if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+      req.session.error = 'Kategori tidak dapat dihapus karena masih digunakan oleh aset peralatan';
+    } else {
+      req.session.error = 'Gagal menghapus kategori. Silakan coba lagi.';
+    }
+    res.redirect('/equipment-categories');
   }
 };
 

@@ -4,7 +4,7 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 
-// Validation rules (tanpa category_id — tidak ada di DB dosen)
+// Validation rules
 const validateEquipment = [
   body('name').trim().notEmpty().withMessage('Nama aset wajib diisi').isLength({ max: 255 }),
   body('code').trim().notEmpty().withMessage('Kode aset wajib diisi').isLength({ max: 100 }),
@@ -34,6 +34,12 @@ const index = async (req, res, next) => {
     const q = req.query.q || '';
     const conditionFilter = req.query.condition || '';
     const statusFilter = req.query.status || '';
+    const categoryFilter = req.query.category_id || '';
+
+    // Pagination
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = 10;
+    const offset = (page - 1) * limit;
 
     let whereClause = `WHERE a.type = 'equipment'`;
     const params = [];
@@ -51,18 +57,39 @@ const index = async (req, res, next) => {
       whereClause += ` AND a.status = ?`;
       params.push(statusFilter);
     }
+    if (categoryFilter) {
+      whereClause += ` AND e.category_id = ?`;
+      params.push(categoryFilter);
+    }
 
-    const [equipments] = await db.query(`
-      SELECT 
-        a.id, a.name, a.code, a.acquisition_type, a.acquisition_date,
-        a.acquisition_cost, a.condition, a.status, a.created_at,
-        e.id AS equipment_id, e.brand, e.model, e.serial_number,
-        e.specification, e.photo
+    // Hitung total baris untuk jumlah halaman
+    const [[{ totalRows }]] = await db.query(`
+      SELECT COUNT(*) AS totalRows
       FROM assets a
       JOIN equipments e ON e.asset_id = a.id
       ${whereClause}
-      ORDER BY a.created_at DESC
     `, params);
+    const totalPages = Math.max(1, Math.ceil(totalRows / limit));
+
+    const [equipments] = await db.query(`
+      SELECT
+        a.id, a.name, a.code, a.acquisition_type, a.acquisition_date,
+        a.acquisition_cost, a.condition, a.status, a.created_at,
+        e.id AS equipment_id, e.brand, e.model, e.serial_number,
+        e.specification, e.photo, e.category_id,
+        ec.name AS category_name
+      FROM assets a
+      JOIN equipments e ON e.asset_id = a.id
+      LEFT JOIN equipment_categories ec ON ec.id = e.category_id
+      ${whereClause}
+      ORDER BY a.created_at DESC
+      LIMIT ? OFFSET ?
+    `, [...params, limit, offset]);
+
+    // Daftar kategori untuk dropdown filter
+    const [categories] = await db.query(
+      'SELECT id, code, name FROM equipment_categories ORDER BY name ASC'
+    );
 
     res.render('equipments/index', {
       title: 'Aset Peralatan',
@@ -70,10 +97,13 @@ const index = async (req, res, next) => {
       q,
       conditionFilter,
       statusFilter,
+      categoryFilter,
+      categories,
       user: req.session.email,
       success: req.session.success || null,
       error: req.session.error || null,
       formatRupiah,
+      pagination: { page, limit, totalRows, totalPages },
     });
     delete req.session.success;
     delete req.session.error;
@@ -83,13 +113,19 @@ const index = async (req, res, next) => {
 };
 
 // GET /equipments/create
-const create = (req, res) => {
-  res.render('equipments/create', {
-    title: 'Tambah Aset Peralatan',
-    user: req.session.email,
-    errors: [],
-    old: {},
-  });
+const create = async (req, res, next) => {
+  try {
+    const [categories] = await db.query('SELECT id, code, name FROM equipment_categories ORDER BY name ASC');
+    res.render('equipments/create', {
+      title: 'Tambah Aset Peralatan',
+      user: req.session.email,
+      errors: [],
+      old: {},
+      categories,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 // POST /equipments
@@ -98,11 +134,13 @@ const store = async (req, res, next) => {
 
   if (!errors.isEmpty()) {
     if (req.file) fs.unlinkSync(req.file.path);
+    const [categories] = await db.query('SELECT id, code, name FROM equipment_categories ORDER BY name ASC');
     return res.render('equipments/create', {
       title: 'Tambah Aset Peralatan',
       user: req.session.email,
       errors: errors.array(),
       old: req.body,
+      categories,
     });
   }
 
@@ -114,7 +152,7 @@ const store = async (req, res, next) => {
       name, code, acquisition_type, acquisition_date, acquisition_cost,
       asset_grant_id, condition, status,
       brand, model, serial_number, specification, purchase_link,
-      depreciation_value, useful_life
+      depreciation_value, useful_life, category_id
     } = req.body;
 
     // Cek unique code
@@ -122,11 +160,13 @@ const store = async (req, res, next) => {
     if (existing.length > 0) {
       if (req.file) fs.unlinkSync(req.file.path);
       await conn.rollback();
+      const [categories] = await db.query('SELECT id, code, name FROM equipment_categories ORDER BY name ASC');
       return res.render('equipments/create', {
         title: 'Tambah Aset Peralatan',
         user: req.session.email,
         errors: [{ path: 'code', msg: 'Kode aset sudah digunakan' }],
         old: req.body,
+        categories,
       });
     }
 
@@ -145,13 +185,13 @@ const store = async (req, res, next) => {
     // Photo path
     const photoPath = req.file ? `/uploads/equipment/${req.file.filename}` : null;
 
-    // Insert equipments (kolom sesuai DB dosen — tanpa category_id)
+    // Insert equipments
     await conn.query(`
       INSERT INTO equipments 
-        (asset_id, brand, model, serial_number, specification, purchase_link, photo, depreciation_value, useful_life, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        (asset_id, category_id, brand, model, serial_number, specification, purchase_link, photo, depreciation_value, useful_life, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `, [
-      assetId,
+      assetId, category_id || null,
       brand || null, model || null, serial_number || null,
       specification || null, purchase_link || null, photoPath,
       depreciation_value || null, useful_life || null
@@ -176,9 +216,11 @@ const show = async (req, res, next) => {
       SELECT 
         a.*, e.id AS equipment_id, e.brand, e.model, e.serial_number,
         e.specification, e.photo, e.purchase_link, e.depreciation_value,
-        e.useful_life
+        e.useful_life, e.category_id,
+        ec.name AS category_name, ec.code AS category_code
       FROM assets a
       JOIN equipments e ON e.asset_id = a.id
+      LEFT JOIN equipment_categories ec ON ec.id = e.category_id
       WHERE a.id = ? AND a.type = 'equipment'
     `, [req.params.id]);
 
@@ -203,7 +245,7 @@ const edit = async (req, res, next) => {
     const [rows] = await db.query(`
       SELECT a.*, e.id AS equipment_id, e.brand, e.model, e.serial_number,
         e.specification, e.photo, e.purchase_link, e.depreciation_value,
-        e.useful_life
+        e.useful_life, e.category_id
       FROM assets a
       JOIN equipments e ON e.asset_id = a.id
       WHERE a.id = ? AND a.type = 'equipment'
@@ -213,11 +255,13 @@ const edit = async (req, res, next) => {
       return res.status(404).render('error', { message: 'Aset tidak ditemukan', error: { status: 404, stack: '' } });
     }
 
+    const [categories] = await db.query('SELECT id, code, name FROM equipment_categories ORDER BY name ASC');
     res.render('equipments/edit', {
       title: 'Edit Aset Peralatan',
       user: req.session.email,
       equipment: rows[0],
       errors: [],
+      categories,
     });
   } catch (err) {
     next(err);
@@ -231,14 +275,16 @@ const update = async (req, res, next) => {
   if (!errors.isEmpty()) {
     if (req.file) fs.unlinkSync(req.file.path);
     const [rows] = await db.query(
-      'SELECT a.*, e.brand, e.model, e.serial_number, e.specification, e.photo, e.purchase_link, e.depreciation_value, e.useful_life FROM assets a JOIN equipments e ON e.asset_id = a.id WHERE a.id = ?',
+      'SELECT a.*, e.brand, e.model, e.serial_number, e.specification, e.photo, e.purchase_link, e.depreciation_value, e.useful_life, e.category_id FROM assets a JOIN equipments e ON e.asset_id = a.id WHERE a.id = ?',
       [req.params.id]
     );
+    const [categories] = await db.query('SELECT id, code, name FROM equipment_categories ORDER BY name ASC');
     return res.render('equipments/edit', {
       title: 'Edit Aset Peralatan',
       user: req.session.email,
       equipment: rows[0],
       errors: errors.array(),
+      categories,
     });
   }
 
@@ -249,7 +295,7 @@ const update = async (req, res, next) => {
     const {
       name, code, acquisition_type, acquisition_date, acquisition_cost,
       condition, status, brand, model, serial_number, specification,
-      purchase_link, depreciation_value, useful_life, remove_photo
+      purchase_link, depreciation_value, useful_life, remove_photo, category_id
     } = req.body;
 
     // Cek unique code (exclude self)
@@ -257,15 +303,17 @@ const update = async (req, res, next) => {
     if (existing.length > 0) {
       if (req.file) fs.unlinkSync(req.file.path);
       const [rows] = await conn.query(
-        'SELECT a.*, e.brand, e.model, e.serial_number, e.specification, e.photo, e.purchase_link, e.depreciation_value, e.useful_life FROM assets a JOIN equipments e ON e.asset_id = a.id WHERE a.id = ?',
+        'SELECT a.*, e.brand, e.model, e.serial_number, e.specification, e.photo, e.purchase_link, e.depreciation_value, e.useful_life, e.category_id FROM assets a JOIN equipments e ON e.asset_id = a.id WHERE a.id = ?',
         [req.params.id]
       );
+      const [categories] = await db.query('SELECT id, code, name FROM equipment_categories ORDER BY name ASC');
       await conn.rollback();
       return res.render('equipments/edit', {
         title: 'Edit Aset Peralatan',
         user: req.session.email,
         equipment: rows[0],
         errors: [{ path: 'code', msg: 'Kode aset sudah digunakan' }],
+        categories,
       });
     }
 
@@ -295,11 +343,12 @@ const update = async (req, res, next) => {
       photoPath = null;
     }
 
-    // Update equipments (tanpa category_id)
+    // Update equipments
     await conn.query(`
-      UPDATE equipments SET brand=?, model=?, serial_number=?, specification=?, purchase_link=?, photo=?, depreciation_value=?, useful_life=?, updated_at=NOW()
+      UPDATE equipments SET category_id=?, brand=?, model=?, serial_number=?, specification=?, purchase_link=?, photo=?, depreciation_value=?, useful_life=?, updated_at=NOW()
       WHERE asset_id=?
     `, [
+      category_id || null,
       brand || null, model || null, serial_number || null,
       specification || null, purchase_link || null, photoPath,
       depreciation_value || null, useful_life || null, req.params.id
@@ -329,7 +378,7 @@ const destroy = async (req, res, next) => {
     );
     if (rows.length === 0) {
       await conn.rollback();
-      return res.status(404).json({ message: 'Aset tidak ditemukan' });
+      return res.status(404).json({ success: false, message: 'Aset tidak ditemukan' });
     }
 
     const photo = rows[0].photo;
@@ -347,7 +396,8 @@ const destroy = async (req, res, next) => {
     res.redirect('/equipments');
   } catch (err) {
     await conn.rollback();
-    next(err);
+    req.session.error = 'Gagal menghapus aset. Silakan coba lagi.';
+    res.redirect('/equipments');
   } finally {
     conn.release();
   }
@@ -360,6 +410,7 @@ const exportData = async (req, res, next) => {
     const q = req.query.q || '';
     const conditionFilter = req.query.condition || '';
     const statusFilter = req.query.status || '';
+    const categoryFilter = req.query.category_id || '';
 
     let whereClause = `WHERE a.type = 'equipment'`;
     const params = [];
@@ -370,14 +421,17 @@ const exportData = async (req, res, next) => {
     }
     if (conditionFilter) { whereClause += ` AND a.\`condition\` = ?`; params.push(conditionFilter); }
     if (statusFilter) { whereClause += ` AND a.status = ?`; params.push(statusFilter); }
+    if (categoryFilter) { whereClause += ` AND e.category_id = ?`; params.push(categoryFilter); }
 
     const [equipments] = await db.query(`
-      SELECT 
+      SELECT
         a.code, a.name, e.brand, e.model, e.serial_number,
+        ec.name AS category_name,
         a.acquisition_type, a.acquisition_date, a.acquisition_cost,
         a.\`condition\`, a.status, e.specification, a.created_at
       FROM assets a
       JOIN equipments e ON e.asset_id = a.id
+      LEFT JOIN equipment_categories ec ON ec.id = e.category_id
       ${whereClause}
       ORDER BY a.created_at DESC
     `, params);
@@ -393,6 +447,7 @@ const exportData = async (req, res, next) => {
     sheet.columns = [
       { header: 'Kode Aset', key: 'code', width: 15 },
       { header: 'Nama Aset', key: 'name', width: 30 },
+      { header: 'Kategori', key: 'category_name', width: 20 },
       { header: 'Merek', key: 'brand', width: 15 },
       { header: 'Model', key: 'model', width: 15 },
       { header: 'No. Seri', key: 'serial_number', width: 20 },
@@ -411,6 +466,7 @@ const exportData = async (req, res, next) => {
       sheet.addRow({
         code: eq.code,
         name: eq.name,
+        category_name: eq.category_name || '-',
         brand: eq.brand || '-',
         model: eq.model || '-',
         serial_number: eq.serial_number || '-',

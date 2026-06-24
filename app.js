@@ -10,8 +10,10 @@ var methodOverride = require('method-override');
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 const equipmentRouter = require('./routes/equipments');
+const equipmentCategoryRouter = require('./routes/equipmentCategories');
 const apiRouter = require('./routes/api');
 const { notFoundHandler, errorHandler } = require('./middlewares/error');
+const { loadPermissions } = require('./middlewares/acl');
 
 var app = express();
 
@@ -53,9 +55,28 @@ app.use(session({
   }
 }));
 
+// Pastikan sesi tersimpan ke store (MySQL async) SEBELUM redirect dikirim.
+// Tanpa ini, browser bisa meminta halaman tujuan sebelum sesi ter-persist,
+// sehingga data sesi (login, flash message) hilang secara intermiten.
+app.use((req, res, next) => {
+  const originalRedirect = res.redirect.bind(res);
+  res.redirect = function (...args) {
+    if (!req.session) return originalRedirect(...args);
+    req.session.save((err) => {
+      if (err) return next(err);
+      originalRedirect(...args);
+    });
+  };
+  next();
+});
+
+// Muat permission user ke res.locals (helper `can()` untuk semua view)
+app.use(loadPermissions);
+
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
 app.use('/equipments', equipmentRouter);
+app.use('/equipment-categories', equipmentCategoryRouter);
 app.use('/api', apiRouter);
 
 // catch 404 and forward to error handler

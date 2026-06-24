@@ -43,8 +43,9 @@ const checkPermission = (requiredPermissions) => {
 
       // If no matching permission found, return Forbidden
       res.status(403).render("error", {
-        message: "Forbidden: You do not have permission to access this resource.",
-        error: { status: 403, stack: "" }
+        message: "Kamu tidak memiliki izin untuk mengakses halaman ini.",
+        error: { status: 403, stack: "" },
+        user: req.session?.email || null,
       });
     } catch (err) {
       next(err);
@@ -52,6 +53,41 @@ const checkPermission = (requiredPermissions) => {
   };
 };
 
+/**
+ * Memuat seluruh permission milik user yang sedang login ke res.locals,
+ * sehingga view bisa menampilkan/menyembunyikan elemen sesuai hak akses.
+ *
+ * Menyediakan helper `can(permission)` di setiap template EJS:
+ *   <% if (can('equipments.create')) { %> ... <% } %>
+ */
+const loadPermissions = async (req, res, next) => {
+  // Default: tidak ada izin
+  res.locals.permissions = [];
+  res.locals.can = () => false;
+
+  if (!req.session.userId) {
+    return next();
+  }
+
+  try {
+    const [rows] = await db.query(
+      `SELECT DISTINCT p.name
+         FROM permissions p
+         JOIN role_has_permissions rhp ON p.id = rhp.permission_id
+         JOIN model_has_roles mhr ON rhp.role_id = mhr.role_id
+        WHERE mhr.model_id = ? AND mhr.model_type = 'User'`,
+      [req.session.userId]
+    );
+    const perms = rows.map((r) => r.name);
+    res.locals.permissions = perms;
+    res.locals.can = (perm) => perms.includes(perm);
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
-  checkPermission
+  checkPermission,
+  loadPermissions,
 };
