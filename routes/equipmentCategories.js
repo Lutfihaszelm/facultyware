@@ -16,7 +16,10 @@ router.post('/', isAuthenticated, checkPermission('equipment_categories.create')
 
 // Edit
 router.get('/:id/edit', isAuthenticated, checkPermission('equipment_categories.edit'), ctrl.edit);
-router.post('/:id', isAuthenticated, checkPermission('equipment_categories.edit'), ctrl.validateCategory, ctrl.update);
+// Update — daftarkan POST & PUT: form kirim _method=PUT (method-override ubah POST→PUT)
+const updateCategory = [isAuthenticated, checkPermission('equipment_categories.edit'), ctrl.validateCategory, ctrl.update];
+router.post('/:id', updateCategory);
+router.put('/:id', updateCategory);
 
 // Delete
 router.delete('/:id', isAuthenticated, checkPermission('equipment_categories.delete'), ctrl.destroy);

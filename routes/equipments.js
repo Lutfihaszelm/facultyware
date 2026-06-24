@@ -21,8 +21,11 @@ router.get('/:id', isAuthenticated, checkPermission('equipments.view'), ctrl.sho
 
 // Edit
 router.get('/:id/edit', isAuthenticated, checkPermission('equipments.edit'), ctrl.edit);
-router.post('/:id', isAuthenticated, checkPermission('equipments.edit'),
-  upload.single('photo'), ctrl.validateEquipment, ctrl.update);
+// Update — daftarkan POST & PUT: form kirim _method=PUT (method-override ubah POST→PUT)
+const updateEquipment = [isAuthenticated, checkPermission('equipments.edit'),
+  upload.single('photo'), ctrl.validateEquipment, ctrl.update];
+router.post('/:id', updateEquipment);
+router.put('/:id', updateEquipment);
 
 // Delete
 router.delete('/:id', isAuthenticated, checkPermission('equipments.delete'), ctrl.destroy);
